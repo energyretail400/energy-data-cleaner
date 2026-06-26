@@ -1,0 +1,23 @@
+# Raw data and outputs — never commit these
+Input/
+Output/
+
+# One-off working scripts
+fix_formats.py
+fix_formats2.py
+fix_formats3.py
+fix_unprocessed.py
+add_formats.py
+inspect2.py
+inspect_new.py
+peek2.py
+peek3.py
+peek_all.py
+run_output.txt
+run_output2.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.env
