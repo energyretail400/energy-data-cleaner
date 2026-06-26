@@ -365,6 +365,55 @@ def transform_wide_nmis(df: pd.DataFrame, cfg: dict) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Wide-daily parser (one row per day, H:MM columns = interval start times)
+# ---------------------------------------------------------------------------
+
+def transform_wide_daily(df: pd.DataFrame, cfg: dict) -> list:
+    """
+    Convert wide-daily format into standard clean output rows.
+    Each source row is one day; column headers are interval start times (H:MM).
+    Returns complete row dicts directly (like the NEM12 parser).
+    """
+    date_col      = cfg.get("datetime_col", "Date/Time")
+    interval_cols = [c for c in df.columns if re.match(r"^\d{1,2}:\d{2}$", str(c).strip())]
+    qual_col      = next((c for c in df.columns if "quality" in str(c).lower()), None)
+    nmi           = str(cfg.get("const_nmi", ""))[:10]
+
+    output = []
+    for _, row in df.iterrows():
+        date_str = str(row.get(date_col, "")).strip().split(".")[0]
+        try:
+            base_date = datetime.strptime(date_str, "%Y%m%d")
+        except ValueError:
+            continue
+
+        notes = get_notes(row[qual_col]) if qual_col and qual_col in row.index else "actual"
+
+        for time_label in interval_cols:
+            val = safe_float(row[time_label])
+            try:
+                h, m = map(int, str(time_label).strip().split(":"))
+                start_dt = base_date.replace(hour=h, minute=m)
+                end_dt   = start_dt + timedelta(minutes=30)
+            except (ValueError, TypeError):
+                continue
+
+            ce = round(val, 4)
+            output.append({
+                "NMI":          nmi,
+                "Date_time":    fmt_dt(end_dt),
+                "the_date":     fmt_date(start_dt),
+                "the_interval": get_interval(end_dt),
+                "net_kWh":      ce,
+                "CE_kWh":       ce,
+                "SOE_kWh":      0.0,
+                "notes":        notes,
+            })
+
+    return output
+
+
+# ---------------------------------------------------------------------------
 # NEM12 parser
 # ---------------------------------------------------------------------------
 
@@ -383,8 +432,15 @@ def _parse_nem12_rows(rows_iter, src_mins: int) -> list:
         rec_type = str(record[0]).strip()
 
         if rec_type == "200":
-            current_nmi    = str(record[1]).strip()[:10] if len(record) > 1 else None
-            current_stream = str(record[3]).strip()      if len(record) > 3 else "E1"
+            current_nmi = str(record[1]).strip()[:10] if len(record) > 1 else None
+            # NMI suffix (stream ID) can appear at index 2, 3, or 4 depending on variant
+            current_stream = "E1"
+            for idx in (3, 4, 2):
+                if len(record) > idx:
+                    val = str(record[idx]).strip()
+                    if re.match(r"^[BEQ][1-9]$", val):
+                        current_stream = val
+                        break
 
         elif rec_type == "300" and current_nmi:
             if len(record) < 3:
@@ -644,6 +700,14 @@ def process_format(cfg: dict, file_path: Path = None, file_bytes: bytes = None) 
         print(f"  Cleaned rows : {len(rows):,}")
         return rows, len(rows) > 0
 
+    # Wide daily: dedicated parser returns complete rows
+    if cfg.get("layout") == "wide_daily":
+        df_wd = read_source(file_src, cfg["file_type"], header_row=cfg.get("header_row", 3))
+        print(f"  Source rows  : {len(df_wd):,}")
+        rows = transform_wide_daily(df_wd, cfg)
+        print(f"  Cleaned rows : {len(rows):,}")
+        return rows, len(rows) > 0
+
     df = read_source(file_src, cfg["file_type"], header_row=cfg.get("header_row", 0))
     print(f"  Source rows  : {len(df):,}")
 
@@ -696,8 +760,11 @@ def process_format(cfg: dict, file_path: Path = None, file_bytes: bytes = None) 
         # NMI
         if const_nmi:
             nmi = const_nmi
-        else:
+        elif cfg.get("nmi_col"):
             nmi = str(row[cfg["nmi_col"]]).strip()
+        else:
+            skipped += 1
+            continue
         if len(nmi) > 10:
             nmi = nmi[:10]
         if not nmi or nmi in ("nan", "None"):

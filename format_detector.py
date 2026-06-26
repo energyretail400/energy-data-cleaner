@@ -151,6 +151,25 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
                     "datetime_col": "_nem12_", "ce_col": "_nem12_",
                 }
 
+    # ── Wide daily CSV: NMI/metadata rows + Date/Time row + HH:MM interval cols
+    if raw_rows and len(raw_rows) > 3:
+        r0, r3 = raw_rows[0], raw_rows[3]
+        if (r0 and str(r0[0]).strip() == "NMI"
+                and r3 and str(r3[0]).strip() == "Date/Time"
+                and len(r3) > 2
+                and re.match(r"^\d{1,2}:\d{2}$", str(r3[1]).strip())):
+            nmi = str(r0[1]).strip()[:10] if len(r0) > 1 else ""
+            return {
+                "file_type": ft,
+                "layout": "wide_daily",
+                "const_nmi": nmi,
+                "datetime_col": "Date/Time",
+                "datetime_kind": "string_start",
+                "ce_col": "_wide_daily_",
+                "header_row": 3,
+                "interval_minutes": 30,
+            }
+
     if df is None or df.empty:
         return None
 
@@ -172,16 +191,20 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             cfg["soe_col"] = soe
         return cfg
 
-    # ── 2. Gentrack no-NMI (endtime + kwh, NMI from filename) ───────────────
+    # ── 2. Gentrack no-NMI (endtime + kwh, NMI from meter_serial or filename) ─
     if {"endtime", "kwh"}.issubset(cols) and "nmi" not in cols:
         cfg = {
             "file_type": ft,
-            "const_nmi":    _extract_nmi(filename),
             "datetime_col": _get(nm, "endtime"),
             "datetime_kind": "string_end",
             "ce_col":       _get(nm, "kwh"),
             "interval_minutes": 30,
         }
+        meter_nmi = _get(nm, "meter_serial", "meternmi", "meter nmi")
+        if meter_nmi:
+            cfg["nmi_col"] = meter_nmi
+        else:
+            cfg["const_nmi"] = _extract_nmi(filename)
         soe = _get(nm, "generated_kwh")
         if soe:
             cfg["soe_col"] = soe
@@ -269,6 +292,22 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "interval_minutes": 5,
         }
 
+    # ── Usage from Grid / Feed In (multi-section xlsx, real header at row 1) ──
+    if _contains(nm, "usage from the grid") and _contains(nm, "feed in"):
+        df1, _ = _read_sample(file_bytes, filename, nrows=8, header_row=1)
+        if df1 is not None and not df1.empty:
+            return {
+                "file_type": ft,
+                "header_row": 1,
+                "data_skip_rows": 4,
+                "const_nmi": _extract_nmi(filename) or Path(filename).stem[:10],
+                "datetime_col": str(df1.columns[0]),
+                "datetime_kind": "string_start",
+                "ce_col": "Active Amt (kWh)",
+                "soe_col": "Active Amt (kWh).1",
+                "interval_minutes": 30,
+            }
+
     # ── 8. Alba Thermal / Usage Data CSV  (Site + From Date + Direction + Unit + Value) ──
     from_dt = _get(nm, "from date", "from_date")
     if _get(nm, "site") and from_dt and _get(nm, "direction") and _get(nm, "unit") and _get(nm, "value"):
@@ -290,6 +329,24 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
         if from_tm:
             cfg["time_col"] = from_tm
         return cfg
+
+    # ── Direction + Interval Date/Time + Amount + UOM (long, IMPORT/EXPORT) ──
+    int_dt_col = _contains(nm, "interval date")
+    if int_dt_col and _get(nm, "direction") and _get(nm, "amount") and _get(nm, "uom"):
+        return {
+            "file_type": ft,
+            "layout": "long",
+            "filter_col": _get(nm, "uom"),
+            "filter_value": "KWH",
+            "const_nmi": _extract_nmi(filename) or Path(filename).stem[:10],
+            "datetime_col": int_dt_col,
+            "datetime_kind": "string_end",
+            "type_col": _get(nm, "direction"),
+            "ce_type_value": "IMPORT",
+            "soe_type_value": "EXPORT",
+            "ce_col": _get(nm, "amount"),
+            "interval_minutes": 30,
+        }
 
     # ── 9. EndDate + EndTime + Consumption ───────────────────────────────────
     if _get(nm, "enddate") and _get(nm, "endtime") and _get(nm, "consumption"):
@@ -367,6 +424,18 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
         if exp_col:
             cfg["soe_col"] = exp_col
         return cfg
+
+    # ── Datetime + Net Grid Import kWh (no NMI column, NMI from filename) ───
+    net_import_col = _contains(nm, "net grid import")
+    if _get(nm, "datetime") and net_import_col:
+        return {
+            "file_type": ft,
+            "const_nmi": _extract_nmi(filename) or Path(filename).stem[:10],
+            "datetime_col": _get(nm, "datetime"),
+            "datetime_kind": "string_start",
+            "ce_col": net_import_col,
+            "interval_minutes": 30,
+        }
 
     # ── 13. NMI + E col (CE) + some datetime ────────────────────────────────
     if _get(nm, "nmi") and _get(nm, "e"):
