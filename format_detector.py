@@ -432,6 +432,22 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "interval_minutes": 5,
         }
 
+    # ── Identifier + Date + Start Time + Usage + Generation (Idameneo) ──────
+    ident_col  = _get(nm, "identifier")
+    start_time = _get(nm, "start time")
+    gen_col    = _get(nm, "generation")
+    if ident_col and _get(nm, "date") and start_time and _get(nm, "usage") and gen_col:
+        return {
+            "file_type": ft,
+            "nmi_col":       ident_col,
+            "datetime_col":  _get(nm, "date"),
+            "time_col":      start_time,
+            "datetime_kind": "string_start",
+            "ce_col":        _get(nm, "usage"),
+            "soe_col":       gen_col,
+            "interval_minutes": 30,
+        }
+
     # ── Commodity + Date + Time + NMI + Usage (e.g. 4310261111, 51481) ──────
     if _get(nm, "commodity") and _get(nm, "nmi") and _get(nm, "usage"):
         dt_c   = _get(nm, "date") or _get(nm, "datetime")
@@ -496,6 +512,20 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "datetime_col":  dt_only_col,
             "datetime_kind": "string_end",
             "ce_col":        _get(nm, "kwh"),
+            "interval_minutes": 30,
+        }
+
+    # ── NMI + DateTime + Usage (kWh) + Export (kWh) (51399 format) ──────────
+    usage_kwh_col  = _contains(nm, "usage (kwh)")
+    export_kwh_col = _contains(nm, "export (kwh)")
+    if _get(nm, "nmi") and dt_only_col and usage_kwh_col:
+        return {
+            "file_type": ft,
+            "nmi_col":       _get(nm, "nmi"),
+            "datetime_col":  dt_only_col,
+            "datetime_kind": "string_end",
+            "ce_col":        usage_kwh_col,
+            "soe_col":       export_kwh_col,
             "interval_minutes": 30,
         }
 
