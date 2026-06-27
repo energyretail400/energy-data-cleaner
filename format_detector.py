@@ -201,6 +201,27 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
                 "interval_minutes": 30,
             }
 
+    # ── NMI metadata row 0 + offset header with endtime + kWh ──────────────
+    if raw_rows and len(raw_rows) >= 2:
+        r0 = raw_rows[0]
+        if r0 and str(r0[0]).strip().upper() == "NMI" and len(r0) > 1:
+            nmi_val = str(r0[1]).strip()[:10]
+            df1, _ = _read_sample(file_bytes, filename, nrows=4, header_row=1)
+            if df1 is not None and not df1.empty:
+                nm1     = _norm_map(df1)
+                et_col  = _get(nm1, "endtime")
+                kwh_col = _get(nm1, "kwh")
+                if et_col and kwh_col:
+                    return {
+                        "file_type": ft,
+                        "header_row":    1,
+                        "const_nmi":     nmi_val,
+                        "datetime_col":  et_col,
+                        "datetime_kind": "string_end",
+                        "ce_col":        kwh_col,
+                        "interval_minutes": 30,
+                    }
+
     # ── Export Period CSV (offset header: NMI in metadata, header at row N) ──
     if raw_rows and raw_rows[0] and "export period" in str(raw_rows[0][0]).lower():
         header_idx = None
@@ -316,7 +337,7 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "ce_col":       _get(nm, "kwh"),
             "interval_minutes": 30,
         }
-        meter_nmi = _get(nm, "meter_serial", "meternmi", "meter nmi")
+        meter_nmi = _get(nm, "meternmi", "meter nmi")
         if meter_nmi:
             cfg["nmi_col"] = meter_nmi
         else:
@@ -433,11 +454,12 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
         }
 
     # ── Identifier + Date + Start Time + Usage + Generation (Idameneo) ──────
-    ident_col  = _get(nm, "identifier")
-    start_time = _get(nm, "start time")
-    gen_col    = _get(nm, "generation")
+    ident_col    = _get(nm, "identifier")
+    id_type_col  = _get(nm, "identifiertype")
+    start_time   = _get(nm, "start time")
+    gen_col      = _get(nm, "generation")
     if ident_col and _get(nm, "date") and start_time and _get(nm, "usage") and gen_col:
-        return {
+        cfg = {
             "file_type": ft,
             "nmi_col":       ident_col,
             "datetime_col":  _get(nm, "date"),
@@ -447,6 +469,10 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "soe_col":       gen_col,
             "interval_minutes": 30,
         }
+        if id_type_col:
+            cfg["filter_col"]   = id_type_col
+            cfg["filter_value"] = "NMI"
+        return cfg
 
     # ── Commodity + Date + Time + NMI + Usage (e.g. 4310261111, 51481) ──────
     if _get(nm, "commodity") and _get(nm, "nmi") and _get(nm, "usage"):
@@ -682,6 +708,23 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
         if qual_col:
             cfg["quality_col"] = qual_col
         return cfg
+
+    # ── NMI + StartDate + ProfileReadValue + RateTypeDescription (Jemena/DPE) ─
+    profile_col  = _get(nm, "profilereadvalue")
+    start_dt_col = _get(nm, "startdate", "start date", "startdatetime")
+    rate_col     = _get(nm, "ratetypedescription")
+    if _get(nm, "nmi") and start_dt_col and profile_col and rate_col:
+        return {
+            "file_type": ft,
+            "nmi_col":       _get(nm, "nmi"),
+            "datetime_col":  start_dt_col,
+            "datetime_kind": "string_start",
+            "ce_col":        profile_col,
+            "filter_col":    rate_col,
+            "filter_value":  "Usage",
+            "quality_col":   _get(nm, "qualityflag"),
+            "interval_minutes": 30,
+        }
 
     # ── 10. nmi + intervaldate/date + time/day_time + intervalvalue_k*h ──────
     iv_col = _contains(nm, "intervalvalue_k")

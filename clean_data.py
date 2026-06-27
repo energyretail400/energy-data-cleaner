@@ -68,6 +68,9 @@ FORMATS_FILE    = BASE_DIR / "formats.json"
 EXCEL_EPOCH = datetime(1899, 12, 30)
 MAX_ROWS    = 17_520    # 365 days x 48 half-hour intervals
 
+# NMI letter-prefix validation (Australian NEM state codes only)
+_VALID_NMI_PREFIXES = frozenset("NQSVAT")
+
 # ---------------------------------------------------------------------------
 # Date / time helpers
 # ---------------------------------------------------------------------------
@@ -768,6 +771,10 @@ def process_format(cfg: dict, file_path: Path = None, file_bytes: bytes = None) 
         if len(nmi) > 10:
             nmi = nmi[:10]
         if not nmi or nmi in ("nan", "None"):
+            skipped += 1
+            continue
+        # Reject NMIs whose first character is a letter outside NEM state codes
+        if nmi[0].isalpha() and nmi[0].upper() not in _VALID_NMI_PREFIXES:
             skipped += 1
             continue
 
