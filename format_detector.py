@@ -394,6 +394,19 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "interval_minutes": 30,
         }
 
+    # ── NMI + Read Datetime + kWh + B (AusNet style, string_start) ─────────
+    rd2_col = _get(nm, "read datetime")
+    if _get(nm, "nmi") and rd2_col and _get(nm, "kwh") and _get(nm, "b"):
+        return {
+            "file_type": ft,
+            "nmi_col":       _get(nm, "nmi"),
+            "datetime_col":  rd2_col,
+            "datetime_kind": "string_start",
+            "ce_col":        _get(nm, "kwh"),
+            "soe_col":       _get(nm, "b"),
+            "interval_minutes": 30,
+        }
+
     # ── NMI + Read Date/Time + kWh (EU dd.mm.yyyy format, 5-min) ───────────
     rdtime_col = _get(nm, "read date/time")
     if _get(nm, "nmi") and rdtime_col and _get(nm, "kwh"):
@@ -471,6 +484,18 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             "ce_type_value":  "E1",
             "soe_type_value": "B1",
             "ce_col":        _get(nm, "read_value"),
+            "interval_minutes": 30,
+        }
+
+    # ── NMI + DateTime + kWh only (simple 3-col ISO format, string_end) ────
+    dt_only_col = _get(nm, "datetime")
+    if _get(nm, "nmi") and dt_only_col and _get(nm, "kwh") and not _get(nm, "e") and not _get(nm, "b"):
+        return {
+            "file_type": ft,
+            "nmi_col":       _get(nm, "nmi"),
+            "datetime_col":  dt_only_col,
+            "datetime_kind": "string_end",
+            "ce_col":        _get(nm, "kwh"),
             "interval_minutes": 30,
         }
 
