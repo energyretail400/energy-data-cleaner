@@ -120,6 +120,20 @@ def _is_nem12_xlsx(file_bytes: bytes) -> bool:
         return False
 
 
+def _is_excel_serial(df: pd.DataFrame, col: str) -> bool:
+    """True if a column holds Excel date serial numbers (floats ~40000-60000)."""
+    if col not in df.columns:
+        return False
+    for val in df[col].dropna().head(5):
+        try:
+            f = float(str(val))
+            if 40000 < f < 60000:
+                return True
+        except (ValueError, TypeError):
+            pass
+    return False
+
+
 def _detect_interval(df: pd.DataFrame, col: str) -> int:
     """Estimate interval in minutes from values in a datetime column."""
     if col not in df.columns:
@@ -329,10 +343,11 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
         return cfg
 
     # ── 2. Gentrack no-NMI (endtime + kwh, NMI from meter_serial or filename) ─
-    if {"endtime", "kwh"}.issubset(cols) and "nmi" not in cols:
+    endtime_col = _get(nm, "endtime", "end time")
+    if endtime_col and _get(nm, "kwh") and "nmi" not in cols:
         cfg = {
             "file_type": ft,
-            "datetime_col": _get(nm, "endtime"),
+            "datetime_col": endtime_col,
             "datetime_kind": "string_end",
             "ce_col":       _get(nm, "kwh"),
             "interval_minutes": 30,
@@ -342,9 +357,12 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
             cfg["nmi_col"] = meter_nmi
         else:
             cfg["const_nmi"] = _extract_nmi(filename)
-        soe = _get(nm, "generated_kwh")
+        soe = _get(nm, "generated_kwh", "generated kwh")
         if soe:
             cfg["soe_col"] = soe
+        qual = _get(nm, "quality", "quality code")
+        if qual:
+            cfg["quality_col"] = qual
         return cfg
 
     # ── MarketId + Time + Consumption kWh (e.g. 7001351111.csv) ─────────────
@@ -802,11 +820,12 @@ def detect_format(file_bytes: bytes, filename: str) -> Optional[dict]:
     if meternmi_col and kwh_plus:
         dt_col   = _get(nm, "read time") or _get(nm, "est time") or _contains(nm, "time")
         kwh_min  = _get(nm, "kwh-")
+        kind     = "excel_end" if _is_excel_serial(df, dt_col) else "string_end"
         return {
             "file_type": ft,
             "const_nmi":     _extract_nmi(filename) or Path(filename).stem[:10],
             "datetime_col":  dt_col,
-            "datetime_kind": "string_end",
+            "datetime_kind": kind,
             "ce_col":        kwh_plus,
             "soe_col":       kwh_min,
             "interval_minutes": 5,
