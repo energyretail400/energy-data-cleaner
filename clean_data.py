@@ -755,6 +755,26 @@ def process_format(cfg: dict, file_path: Path = None, file_bytes: bytes = None) 
     time_col     = cfg.get("time_col")
     dt_col       = cfg["datetime_col"]
 
+    # Sniff datetime format once from the first parseable row (avoids 18 trials per row)
+    if dt_fmt is None and kind in ("string_end", "string_start"):
+        for _, probe in df.head(10).iterrows():
+            try:
+                raw = probe[dt_col]
+                if time_col:
+                    raw = str(probe[dt_col]).strip() + " " + str(probe[time_col]).strip()
+                raw = str(raw).strip()
+                for _f in _DT_FORMATS:
+                    try:
+                        datetime.strptime(raw, _f)
+                        dt_fmt = _f
+                        break
+                    except ValueError:
+                        pass
+                if dt_fmt:
+                    break
+            except Exception:
+                pass
+
     rows    = []
     skipped = 0
 
@@ -843,9 +863,11 @@ def process_format(cfg: dict, file_path: Path = None, file_bytes: bytes = None) 
 
     if rows:
         pre = len(rows)
-        rows = resample_to_30min(rows)
-        if len(rows) != pre or src_mins != 30:
-            print(f"  Aggregated to: {len(rows):,} rows (30-min)")
+        keys = [(r["NMI"], r["Date_time"]) for r in rows]
+        if src_mins != 30 or len(keys) != len(set(keys)):
+            rows = resample_to_30min(rows)
+            if len(rows) != pre or src_mins != 30:
+                print(f"  Aggregated to: {len(rows):,} rows (30-min)")
 
     return rows, len(rows) > 0
 

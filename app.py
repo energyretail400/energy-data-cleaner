@@ -14,6 +14,11 @@ import streamlit as st
 from clean_data import fill_to_year, process_format
 from format_detector import detect_format
 
+
+@st.cache_data(show_spinner=False)
+def _detect_format_cached(file_bytes: bytes, name: str):
+    return detect_format(file_bytes, name)
+
 COLUMNS = ["NMI", "Date_time", "the_date", "the_interval", "net_kWh", "CE_kWh", "SOE_kWh", "notes"]
 
 st.set_page_config(page_title="Energy Data Cleaner", page_icon="⚡", layout="centered")
@@ -79,7 +84,7 @@ if st.button("▶ Process files", type="primary", use_container_width=True):
         file_bytes = f.getvalue()
 
         try:
-            cfg = detect_format(file_bytes, f.name)
+            cfg = _detect_format_cached(file_bytes, f.name)
 
             if cfg is None:
                 results.append({
