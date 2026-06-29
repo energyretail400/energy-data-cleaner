@@ -89,7 +89,7 @@ def _contains(nm: dict, fragment: str) -> Optional[str]:
 
 def _extract_nmi(filename: str) -> str:
     stem = Path(filename).stem
-    m = re.search(r"[Nn]\d{9}|\d{10}", stem)
+    m = re.search(r"[NQSVAT][A-Z0-9]{9}|\d{10}", stem, re.IGNORECASE)
     return m.group(0)[:10].upper() if m else ""
 
 

@@ -217,9 +217,9 @@ def read_source(src, file_type: str, header_row: int = 0) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def extract_nmi_from_filename(file_name: str) -> str:
-    """Extract NMI (N + 9 digits, or 10 digits) from a file path stem."""
+    """Extract NMI from a file path stem. Matches state-prefix NMIs and 10-digit NMIs."""
     stem = Path(file_name).stem
-    m = re.search(r"[Nn]\d{9}|\d{10}", stem)
+    m = re.search(r"[NQSVAT][A-Z0-9]{9}|\d{10}", stem, re.IGNORECASE)
     return m.group(0)[:10].upper() if m else ""
 
 
