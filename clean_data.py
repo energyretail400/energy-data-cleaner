@@ -435,7 +435,11 @@ def _parse_nem12_rows(rows_iter, src_mins: int) -> list:
         rec_type = str(record[0]).strip()
 
         if rec_type == "200":
-            current_nmi = str(record[1]).strip()[:10] if len(record) > 1 else None
+            raw_nmi = str(record[1]).strip()[:10] if len(record) > 1 else ""
+            if raw_nmi and raw_nmi[0].isalpha() and raw_nmi[0].upper() not in _VALID_NMI_PREFIXES:
+                current_nmi = None  # reject meter-reference NMIs (e.g. mtr..., ED...)
+            else:
+                current_nmi = raw_nmi or None
             # NMI suffix (stream ID) can appear at index 2, 3, or 4 depending on variant
             current_stream = "E1"
             for idx in (3, 4, 2):
